@@ -7,3 +7,4 @@ feedparser==6.0.11
 beautifulsoup4==4.12.3
 requests==2.32.3
 httpx==0.25.2
+crawl4ai
