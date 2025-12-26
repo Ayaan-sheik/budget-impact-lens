@@ -1,5 +1,5 @@
 """
-FastAPI Backend for Budget Impact Lens
+FastAPI Backend for Vantage
 Provides REST API endpoints and automated scraping
 """
 
@@ -92,7 +92,7 @@ async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
     # ========== STARTUP ==========
     print("\n" + "=" * 60)
-    print("🚀 Budget Impact Lens API - Starting Up")
+    print("🚀 Vantage API - Starting Up")
     print("=" * 60)
     print(f"📍 Environment: {os.getenv('ENVIRONMENT', 'development')}")
     print(f"⏰ Scrape interval: {SCRAPE_INTERVAL}s ({SCRAPE_INTERVAL // 60} minutes)")
@@ -108,7 +108,7 @@ async def lifespan(app: FastAPI):
     
     # ========== SHUTDOWN ==========
     print("\n" + "=" * 60)
-    print("🛑 Budget Impact Lens API - Shutting Down")
+    print("🛑 Vantage API - Shutting Down")
     print("=" * 60)
     
     # Cancel background tasks
@@ -126,7 +126,7 @@ async def lifespan(app: FastAPI):
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="Budget Impact Lens API",
+    title="Vantage API",
     description="AI-powered government policy analyzer and tracker",
     version="1.0.0",
     lifespan=lifespan
@@ -156,7 +156,7 @@ def get_supabase() -> Client:
 async def root():
     """Root endpoint - API info"""
     return {
-        "name": "Budget Impact Lens API",
+        "name": "Vantage API",
         "version": "1.0.0",
         "status": "running",
         "scraper": {
