@@ -1,25 +1,109 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Zap, Filter, TrendingUp, TrendingDown, RefreshCw } from "lucide-react";
+import { ArrowLeft, Zap, Filter, TrendingUp, TrendingDown, RefreshCw, AlertCircle } from "lucide-react";
 import { useNavigate, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { mockPolicies, sources, categories } from "@/data/mockPolicies";
 
+const API_BASE_URL = "http://localhost:8000";
+
+interface Policy {
+  id: number;
+  title: string;
+  summary: string;
+  link: string;
+  source: string;
+  date: string;
+  category: string;
+  impact_type: string | null;
+  impact_value: number | null;
+  old_value: number | null;
+  new_value: number | null;
+  affected_items: string[];
+  ai_description: string | null;
+  analyzed: boolean;
+  created_at: string;
+}
+
 const FeedPage = () => {
   const navigate = useNavigate();
   const [selectedCategory, setSelectedCategory] = useState("All");
-  const [isScanning, setIsScanning] = useState(true);
+  const [isScanning, setIsScanning] = useState(false);
+  const [policies, setPolicies] = useState<Policy[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [availableCategories, setAvailableCategories] = useState<string[]>(["All"]);
 
-  const filteredPolicies =
-    selectedCategory === "All"
-      ? mockPolicies
-      : mockPolicies.filter((p) => p.category === selectedCategory);
-
-  const handleRefresh = () => {
-    setIsScanning(true);
-    setTimeout(() => setIsScanning(false), 2000);
+  // Fetch policies from backend
+  const fetchPolicies = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const categoryParam = selectedCategory !== "All" ? `&category=${selectedCategory}` : "";
+      const response = await fetch(`${API_BASE_URL}/policies?limit=50${categoryParam}`);
+      
+      if (!response.ok) {
+        throw new Error("Failed to fetch policies");
+      }
+      
+      const data = await response.json();
+      setPolicies(data.data || []);
+    } catch (err) {
+      console.error("Error fetching policies:", err);
+      setError(err instanceof Error ? err.message : "Failed to load policies");
+      // Fallback to mock data on error
+      setPolicies([]);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  // Fetch categories
+  const fetchCategories = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/categories`);
+      if (response.ok) {
+        const data = await response.json();
+        setAvailableCategories(["All", ...data.categories]);
+      }
+    } catch (err) {
+      console.error("Error fetching categories:", err);
+      // Fallback to default categories
+      setAvailableCategories(["All", ...categories.filter(c => c !== "All")]);
+    }
+  };
+
+  // Trigger scraper
+  const handleRefresh = async () => {
+    setIsScanning(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/trigger-scrape`, {
+        method: "POST"
+      });
+      
+      if (response.ok) {
+        // Wait a bit for scraper to finish
+        setTimeout(() => {
+          fetchPolicies();
+          setIsScanning(false);
+        }, 3000);
+      } else {
+        setIsScanning(false);
+      }
+    } catch (err) {
+      console.error("Error triggering scrape:", err);
+      setIsScanning(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPolicies();
+    fetchCategories();
+  }, [selectedCategory]);
+
+  const filteredPolicies = policies;
 
   return (
     <div className="min-h-screen pb-24">
@@ -78,7 +162,7 @@ const FeedPage = () => {
             <span className="text-sm font-medium">Categories</span>
           </div>
           <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-            {categories.map((category) => (
+            {availableCategories.map((category) => (
               <button
                 key={category}
                 onClick={() => setSelectedCategory(category)}
@@ -93,6 +177,25 @@ const FeedPage = () => {
             ))}
           </div>
         </motion.div>
+
+        {/* Error Message */}
+        {error && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6"
+          >
+            <GlassCard className="p-4 border-chart-1" hover={false}>
+              <div className="flex items-center gap-3">
+                <AlertCircle className="w-5 h-5 text-chart-1" />
+                <div>
+                  <p className="text-sm font-medium">Failed to load policies</p>
+                  <p className="text-xs text-muted-foreground">{error}</p>
+                </div>
+              </div>
+            </GlassCard>
+          </motion.div>
+        )}
 
         {/* Source Logos */}
         <motion.div
@@ -122,90 +225,112 @@ const FeedPage = () => {
 
         {/* Policy List */}
         <div className="space-y-3">
-          <AnimatePresence mode="popLayout">
-            {filteredPolicies.map((policy, index) => (
-              <motion.div
-                key={policy.id}
-                layout
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ delay: 0.2 + index * 0.05 }}
-              >
-                <Link to={`/result/${policy.id}`}>
-                  <GlassCard className="p-4">
-                    <div className="flex items-start gap-3">
-                      {/* Impact indicator */}
-                      <div
-                        className={`mt-1 w-1 h-12 rounded-full ${
-                          policy.impactType === "positive"
-                            ? "bg-chart-2"
-                            : policy.impactType === "negative"
-                            ? "bg-chart-1"
-                            : "bg-muted-foreground"
-                        }`}
-                      />
+          {loading ? (
+            <div className="text-center py-12">
+              <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-4 text-primary" />
+              <p className="text-muted-foreground">Loading policies...</p>
+            </div>
+          ) : (
+            <AnimatePresence mode="popLayout">
+              {filteredPolicies.map((policy, index) => {
+                const impactValue = policy.impact_value || 0;
+                const impactType = impactValue > 0 ? "positive" : impactValue < 0 ? "negative" : "neutral";
+                const isNew = new Date(policy.created_at).getTime() > Date.now() - 24 * 60 * 60 * 1000;
+                
+                return (
+                  <motion.div
+                    key={policy.id}
+                    layout
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    transition={{ delay: 0.2 + index * 0.05 }}
+                  >
+                    <Link to={`/result/${policy.id}`}>
+                      <GlassCard className="p-4">
+                        <div className="flex items-start gap-3">
+                          {/* Impact indicator */}
+                          <div
+                            className={`mt-1 w-1 h-12 rounded-full ${
+                              impactType === "positive"
+                                ? "bg-chart-2"
+                                : impactType === "negative"
+                                ? "bg-chart-1"
+                                : "bg-muted-foreground"
+                            }`}
+                          />
 
-                      <div className="flex-1 min-w-0">
-                        {/* Badges */}
-                        <div className="flex gap-2 mb-2">
-                          {policy.isNew && (
-                            <span className="px-2 py-0.5 text-[10px] font-medium bg-chart-2 text-white rounded">
-                              NEW
-                            </span>
-                          )}
-                          {policy.isHot && (
-                            <span className="px-2 py-0.5 text-[10px] font-medium bg-chart-5 text-white rounded">
-                              HOT
-                            </span>
-                          )}
-                          <span className="px-2 py-0.5 text-[10px] font-medium bg-muted text-muted-foreground rounded">
-                            {policy.category}
-                          </span>
-                        </div>
+                          <div className="flex-1 min-w-0">
+                            {/* Badges */}
+                            <div className="flex gap-2 mb-2">
+                              {isNew && (
+                                <span className="px-2 py-0.5 text-[10px] font-medium bg-chart-2 text-white rounded">
+                                  NEW
+                                </span>
+                              )}
+                              {policy.analyzed && (
+                                <span className="px-2 py-0.5 text-[10px] font-medium bg-chart-4 text-white rounded">
+                                  AI ANALYZED
+                                </span>
+                              )}
+                              <span className="px-2 py-0.5 text-[10px] font-medium bg-muted text-muted-foreground rounded">
+                                {policy.category || "general"}
+                              </span>
+                            </div>
 
-                        {/* Title */}
-                        <h3 className="text-sm font-medium mb-1">{policy.shortTitle}</h3>
-                        <p className="text-xs text-muted-foreground line-clamp-2 mb-2">
-                          {policy.description}
-                        </p>
+                            {/* Title */}
+                            <h3 className="text-sm font-medium mb-1">{policy.title}</h3>
+                            <p className="text-xs text-muted-foreground line-clamp-2 mb-2">
+                              {policy.ai_description || policy.summary}
+                            </p>
 
-                        {/* Footer */}
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs text-muted-foreground">
-                            {policy.source} • {policy.date}
-                          </span>
-                          <div className="flex items-center gap-1">
-                            <span
-                              className={`font-serif text-base ${
-                                policy.impactType === "positive"
-                                  ? "impact-positive"
-                                  : policy.impactType === "negative"
-                                  ? "impact-negative"
-                                  : "text-muted-foreground"
-                              }`}
-                            >
-                              {policy.impact >= 0 ? "+" : ""}₹{Math.abs(policy.impact)}
-                            </span>
-                            {policy.impactType === "positive" ? (
-                              <TrendingUp className="w-3 h-3 text-chart-2" />
-                            ) : policy.impactType === "negative" ? (
-                              <TrendingDown className="w-3 h-3 text-chart-1" />
-                            ) : null}
+                            {/* Footer */}
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs text-muted-foreground">
+                                {policy.source || "PIB"} • {new Date(policy.created_at).toLocaleDateString()}
+                              </span>
+                              {policy.analyzed && policy.impact_value !== null && (
+                                <div className="flex items-center gap-1">
+                                  <span
+                                    className={`font-serif text-base ${
+                                      impactType === "positive"
+                                        ? "impact-positive"
+                                        : impactType === "negative"
+                                        ? "impact-negative"
+                                        : "text-muted-foreground"
+                                    }`}
+                                  >
+                                    {impactValue >= 0 ? "+" : ""}
+                                    {policy.impact_type === "percentage" ? `${impactValue}%` : `₹${Math.abs(impactValue)}`}
+                                  </span>
+                                  {impactType === "positive" ? (
+                                    <TrendingUp className="w-3 h-3 text-chart-2" />
+                                  ) : impactType === "negative" ? (
+                                    <TrendingDown className="w-3 h-3 text-chart-1" />
+                                  ) : null}
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </div>
-                  </GlassCard>
-                </Link>
-              </motion.div>
-            ))}
-          </AnimatePresence>
+                      </GlassCard>
+                    </Link>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
+          )}
         </div>
 
-        {filteredPolicies.length === 0 && (
+        {!loading && filteredPolicies.length === 0 && (
           <div className="text-center py-12">
-            <p className="text-muted-foreground">No policies in this category</p>
+            <p className="text-muted-foreground mb-4">
+              {error ? "Unable to load policies from server" : "No policies found"}
+            </p>
+            <Button onClick={handleRefresh} variant="outline" size="sm">
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Refresh Feed
+            </Button>
           </div>
         )}
       </main>

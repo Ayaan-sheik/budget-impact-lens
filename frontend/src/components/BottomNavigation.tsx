@@ -13,8 +13,8 @@ const navItems = [
 export const BottomNavigation = () => {
   const location = useLocation();
 
-  // Hide on login page
-  if (location.pathname === "/profile/login") {
+  // Hide on login and onboarding pages
+  if (location.pathname === "/profile/login" || location.pathname === "/onboarding") {
     return null;
   }
 
