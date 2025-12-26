@@ -5,8 +5,7 @@ Uses LLM to parse raw news text into actionable insights
 
 import os
 import json
-from google import genai
-from google.genai import types
+import google.generativeai as genai
 from typing import Dict, Optional
 from dotenv import load_dotenv
 import time
@@ -16,7 +15,10 @@ load_dotenv()
 
 # Gemini configuration
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', os.getenv('Gemini_API_KEY', ''))
-GEMINI_MODEL = os.getenv('GEMINI_MODEL', os.getenv('Gemini_Model', 'gemini-1.5-flash-latest'))
+GEMINI_MODEL = os.getenv('GEMINI_MODEL', os.getenv('Gemini_Model', 'gemini-1.5-flash'))
+
+# Configure Gemini
+genai.configure(api_key=GEMINI_API_KEY)
 
 # Policy categories
 CATEGORIES = [
@@ -29,12 +31,11 @@ CATEGORIES = [
 IMPACT_TYPES = ['percentage', 'fixed_amount', 'multiplier', 'binary']
 
 
-def init_gemini_client():
-    """Initialize Gemini client"""
+def get_gemini_model():
+    """Get Gemini model instance"""
     if not GEMINI_API_KEY:
         raise ValueError("GEMINI_API_KEY environment variable is not set")
-    client = genai.Client(api_key=GEMINI_API_KEY)
-    return client
+    return genai.GenerativeModel(GEMINI_MODEL)
 
 
 def create_extraction_prompt(title: str, summary: str) -> str:
@@ -102,7 +103,7 @@ def extract_policy_impact(title: str, summary: str, retry_count: int = 2) -> Opt
     """
     for attempt in range(retry_count + 1):
         try:
-            client = init_gemini_client()
+            model = get_gemini_model()
             prompt = create_extraction_prompt(title, summary)
             
             print(f"Analyzing: {title[:60]}...")
@@ -111,10 +112,9 @@ def extract_policy_impact(title: str, summary: str, retry_count: int = 2) -> Opt
 
 {prompt}"""
             
-            response = client.models.generate_content(
-                model=GEMINI_MODEL,
-                contents=full_prompt,
-                config=types.GenerateContentConfig(
+            response = model.generate_content(
+                full_prompt,
+                generation_config=genai.types.GenerationConfig(
                     temperature=0.3,
                     max_output_tokens=500,
                 )
