@@ -73,7 +73,7 @@ This will:
 
 ### Environment Variables (.env):
 ```bash
-GEMINI_API_KEY=AIzaSyBZMSBXMKot3VLXipYfnYkTBc1t9c-Ome4
+GEMINI_API_KEY=your-gemini-api-key-here
 GEMINI_MODEL=gemini-2.5-flash
 ```
 

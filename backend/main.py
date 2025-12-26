@@ -18,25 +18,52 @@ from supabase import create_client, Client
 # Load environment variables
 load_dotenv()
 
+# Configuration
+SCRAPE_INTERVAL = int(os.getenv('SCRAPE_INTERVAL', '3600'))  # Default: 1 hour
+RUN_ON_STARTUP = os.getenv('RUN_SCRAPER_ON_STARTUP', 'true').lower() == 'true'
+
 # Global state for tracking scraper runs
 scraper_state = {
     'last_run': None,
     'last_result': None,
     'is_running': False,
-    'total_runs': 0
+    'total_runs': 0,
+    'enabled': True  # Can be toggled to pause scheduled scraping
 }
 
 # Background task for periodic scraping
 async def periodic_scraper():
-    """Run scraper every hour in the background"""
+    """Run scraper periodically in the background"""
+    # Optional: Wait a bit before first run to let server fully initialize
+    if RUN_ON_STARTUP:
+        print(f"⏰ Running initial scrape on startup...")
+        await asyncio.sleep(5)  # Give server 5 seconds to initialize
+        await run_scraper_task()
+    else:
+        print(f"⏰ Skipping startup scrape (RUN_SCRAPER_ON_STARTUP=false)")
+    
+    # Main periodic loop
     while True:
         try:
-            print(f"\n[{datetime.now().isoformat()}] Starting scheduled scrape...")
+            if not scraper_state['enabled']:
+                print(f"⏸️  Scraper paused, waiting...")
+                await asyncio.sleep(60)  # Check every minute if re-enabled
+                continue
+            
+            print(f"\n⏰ [{datetime.now().isoformat()}] Next scheduled scrape in {SCRAPE_INTERVAL}s...")
+            await asyncio.sleep(SCRAPE_INTERVAL)
+            
+            print(f"\n🔄 [{datetime.now().isoformat()}] Starting scheduled scrape...")
             await run_scraper_task()
-            await asyncio.sleep(3600)  # Wait 1 hour
+            
+        except asyncio.CancelledError:
+            print(f"\n🛑 Scraper task cancelled, shutting down gracefully...")
+            break
         except Exception as e:
-            print(f"Error in periodic scraper: {str(e)}")
-            await asyncio.sleep(300)  # Wait 5 minutes on error
+            print(f"❌ Error in periodic scraper: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            await asyncio.sleep(300)  # Wait 5 minutes on error before retry
 
 
 async def run_scraper_task():
@@ -63,17 +90,38 @@ async def run_scraper_task():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
-    # Startup
-    print("🚀 Starting Budget Impact Lens API...")
+    # ========== STARTUP ==========
+    print("\n" + "=" * 60)
+    print("🚀 Budget Impact Lens API - Starting Up")
+    print("=" * 60)
+    print(f"📍 Environment: {os.getenv('ENVIRONMENT', 'development')}")
+    print(f"⏰ Scrape interval: {SCRAPE_INTERVAL}s ({SCRAPE_INTERVAL // 60} minutes)")
+    print(f"🔄 Run on startup: {RUN_ON_STARTUP}")
+    print(f"🤖 AI Model: {os.getenv('GEMINI_MODEL', 'gemini-2.5-flash')}")
+    print("=" * 60 + "\n")
     
-    # Start periodic scraper task
+    # Start periodic scraper task in background
     scraper_task = asyncio.create_task(periodic_scraper())
+    print("✅ Background scraper task started\n")
     
-    yield
+    yield  # Server runs here
     
-    # Shutdown
-    print("🛑 Shutting down...")
-    scraper_task.cancel()
+    # ========== SHUTDOWN ==========
+    print("\n" + "=" * 60)
+    print("🛑 Budget Impact Lens API - Shutting Down")
+    print("=" * 60)
+    
+    # Cancel background tasks
+    if not scraper_task.done():
+        scraper_task.cancel()
+        try:
+            await scraper_task
+        except asyncio.CancelledError:
+            print("✅ Scraper task cancelled successfully")
+    
+    print("=" * 60)
+    print("👋 Shutdown complete")
+    print("=" * 60 + "\n")
 
 
 # Initialize FastAPI app
@@ -111,12 +159,23 @@ async def root():
         "name": "Budget Impact Lens API",
         "version": "1.0.0",
         "status": "running",
+        "scraper": {
+            "enabled": scraper_state['enabled'],
+            "interval_seconds": SCRAPE_INTERVAL,
+            "run_on_startup": RUN_ON_STARTUP,
+            "total_runs": scraper_state['total_runs']
+        },
         "endpoints": {
+            "docs": "GET /docs",
+            "health": "GET /health",
             "trigger_scrape": "POST /trigger-scrape",
+            "retry_analysis": "POST /retry-analysis?limit=50",
             "scraper_status": "GET /scraper/status",
-            "policies": "GET /policies",
+            "scraper_toggle": "POST /scraper/toggle?enabled=true",
+            "policies": "GET /policies?limit=50&offset=0&category=food",
             "policy_by_id": "GET /policies/{id}",
-            "health": "GET /health"
+            "categories": "GET /categories",
+            "stats": "GET /stats"
         }
     }
 
@@ -187,9 +246,23 @@ async def get_scraper_status():
     """Get current status of the scraper"""
     return {
         "is_running": scraper_state['is_running'],
+        "enabled": scraper_state['enabled'],
         "last_run": scraper_state['last_run'],
         "last_result": scraper_state['last_result'],
-        "total_runs": scraper_state['total_runs']
+        "total_runs": scraper_state['total_runs'],
+        "scrape_interval_seconds": SCRAPE_INTERVAL,
+        "run_on_startup": RUN_ON_STARTUP
+    }
+
+
+@app.post("/scraper/toggle")
+async def toggle_scraper(enabled: bool):
+    """Enable or disable scheduled scraping (manual triggers still work)"""
+    scraper_state['enabled'] = enabled
+    return {
+        "message": f"Scheduled scraping {'enabled' if enabled else 'disabled'}",
+        "enabled": enabled,
+        "timestamp": datetime.now().isoformat()
     }
 
 
